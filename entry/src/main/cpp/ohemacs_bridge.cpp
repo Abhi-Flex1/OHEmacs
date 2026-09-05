@@ -11,6 +11,8 @@
 //   IME via inputmethod C-API. See docs/PORTING.md.
 
 #include "ohemacs_bridge.h"
+#include "emacs-port/ohosgui.h"
+#include "emacs-port/ohosterm.h"
 
 #include <EGL/egl.h>
 #include <GLES3/gl3.h>
@@ -178,6 +180,73 @@ void DrawFrame() {
     g_frameCounter++;
 }
 
+// ---------------------------------------------------------------------------
+// Stage 1 -> Stage 2 bridge: dual-write scaffold events into the ohos_event
+// queue (emacs-port/ohos.cpp) while keeping the legacy internal queue.
+// ohos_write_event() is thread-safe; callers hold g_mutex for the legacy
+// queue, which is safe (no reverse lock order: redraw path takes no locks).
+// C++14-safe: only std::call_once + memset + plain structs.
+// ---------------------------------------------------------------------------
+std::once_flag g_stage2Once;
+
+void RedrawFromOhos() { DrawFrame(); }
+
+void EnsureStage2Bridge() {
+    std::call_once(g_stage2Once, [] {
+        ohos_init_events();
+        ohos_set_redraw_callback(RedrawFromOhos);
+        OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+                     "stage2 bridge ready: ohos queue + redraw callback installed");
+    });
+}
+
+void ForwardKeyToOhos(int32_t keyCode, int32_t action) {
+    struct ohos_event ev;
+    memset(&ev, 0, sizeof ev);
+    ev.type = (action == 0 ? OHOS_KEY_RELEASE : OHOS_KEY_PRESS);
+    ev.u.key.keycode = (int)keyCode;
+    ev.u.key.action = (int)action;
+    ev.u.key.timestamp = 0;
+    ohos_write_event(ev);
+    OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+                 "bridge->ohos KEY code=%{public}d action=%{public}d pending=%{public}d", (int)keyCode,
+                 (int)action, ohos_pending());
+}
+
+void ForwardExposeToOhos() {
+    struct ohos_event ev;
+    memset(&ev, 0, sizeof ev);
+    ev.type = OHOS_EXPOSE;
+    ohos_write_event(ev);
+    OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG, "bridge->ohos EXPOSE pending=%{public}d",
+                 ohos_pending());
+}
+
+void ForwardTouchToOhos(int32_t x, int32_t y) {
+    struct ohos_event ev;
+    memset(&ev, 0, sizeof ev);
+    ev.type = OHOS_TOUCH_DOWN;
+    ev.u.touch.x = (int)x;
+    ev.u.touch.y = (int)y;
+    ev.u.touch.timestamp = 0;
+    ohos_write_event(ev);
+    OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+                 "bridge->ohos TOUCH %{public}d,%{public}d pending=%{public}d", (int)x, (int)y,
+                 ohos_pending());
+}
+
+void ForwardConfigureToOhos(uint64_t w, uint64_t h) {
+    struct ohos_event ev;
+    memset(&ev, 0, sizeof ev);
+    ev.type = OHOS_CONFIGURE_NOTIFY;
+    ev.u.configure.width = w;
+    ev.u.configure.height = h;
+    ohos_write_event(ev);
+    OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+                 "bridge->ohos CONFIGURE %{public}llu x %{public}llu pending=%{public}d",
+                 (unsigned long long)w, (unsigned long long)h, ohos_pending());
+}
+
 void PushEventLocked(const OhemacsEvent &ev) {
     // Cap like android.c (1024) to avoid unbounded growth.
     if (g_eventQueue.size() >= 1024) {
@@ -222,6 +291,7 @@ void OnSurfaceCreated(OH_NativeXComponent *component, void *window) {
     if (component == nullptr || window == nullptr) {
         return;
     }
+    EnsureStage2Bridge();
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         g_component = component;
@@ -236,6 +306,7 @@ void OnSurfaceCreated(OH_NativeXComponent *component, void *window) {
             ev.width = w;
             ev.height = h;
             PushEventLocked(ev);
+            ForwardConfigureToOhos(w, h);
         }
         DrainEventsForLog();
     }
@@ -252,6 +323,7 @@ void OnSurfaceChanged(OH_NativeXComponent *component, void *window) {
     if (component == nullptr || window == nullptr) {
         return;
     }
+    EnsureStage2Bridge();
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         uint64_t w = 0, h = 0;
@@ -263,6 +335,7 @@ void OnSurfaceChanged(OH_NativeXComponent *component, void *window) {
             ev.width = w;
             ev.height = h;
             PushEventLocked(ev);
+            ForwardConfigureToOhos(w, h);
             DrainEventsForLog();
         }
     }
@@ -291,6 +364,7 @@ void DispatchTouchEvent(OH_NativeXComponent *component, void *window) {
     if (OH_NativeXComponent_GetTouchEvent(component, window, &touch) != 0) {
         return;
     }
+    EnsureStage2Bridge();
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         for (uint32_t i = 0; i < touch.numPoints; ++i) {
@@ -299,6 +373,7 @@ void DispatchTouchEvent(OH_NativeXComponent *component, void *window) {
             ev.x = (int32_t)touch.touchPoints[i].x;
             ev.y = (int32_t)touch.touchPoints[i].y;
             PushEventLocked(ev);
+            ForwardTouchToOhos(ev.x, ev.y);
         }
         // Toggle tint slightly to prove input -> render path.
         g_clearColor[0] = 0.16f + (float)(g_eventCounter % 5) * 0.03f;
@@ -315,12 +390,14 @@ void DispatchTouchEvent(OH_NativeXComponent *component, void *window) {
 // Public API used by napi_init.cpp
 // ---------------------------------------------------------------------------
 std::string OhemacsInit(const std::string &filesDir, const std::string &cacheDir) {
+    EnsureStage2Bridge();
     std::lock_guard<std::mutex> lock(g_mutex);
     g_filesDir = filesDir;
     g_cacheDir = cacheDir;
     OhemacsEvent ev;
     ev.type = OhemacsEvent::Type::EXPOSE;
     PushEventLocked(ev);
+    ForwardExposeToOhos();
     DrainEventsForLog();
     char buf[512];
     snprintf(buf, sizeof(buf), "emacs-30.1-ohos files=%s cache=%s events=%llu", filesDir.c_str(),
@@ -330,22 +407,26 @@ std::string OhemacsInit(const std::string &filesDir, const std::string &cacheDir
 }
 
 void OhemacsSendKey(int32_t keyCode, int32_t action) {
+    EnsureStage2Bridge();
     std::lock_guard<std::mutex> lock(g_mutex);
     OhemacsEvent ev;
     ev.type = OhemacsEvent::Type::KEY;
     ev.keyCode = keyCode;
     ev.action = action;
     PushEventLocked(ev);
+    ForwardKeyToOhos(keyCode, action);
     DrainEventsForLog();
 }
 
 void OhemacsSendExpose() {
+    EnsureStage2Bridge();
     bool shouldDraw = false;
     {
         std::lock_guard<std::mutex> lock(g_mutex);
         OhemacsEvent ev;
         ev.type = OhemacsEvent::Type::EXPOSE;
         PushEventLocked(ev);
+        ForwardExposeToOhos();
         DrainEventsForLog();
         shouldDraw = (g_eglDisplay != EGL_NO_DISPLAY);
     }
@@ -376,6 +457,7 @@ extern "C" void OhemacsRegisterCallbacks(OH_NativeXComponent *component) {
     if (component == nullptr) {
         return;
     }
+    EnsureStage2Bridge();
     static OH_NativeXComponent_Callback cb = {OnSurfaceCreated, OnSurfaceChanged, OnSurfaceDestroyed,
                                               DispatchTouchEvent};
     OH_NativeXComponent_RegisterCallback(component, &cb);
