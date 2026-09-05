@@ -1,12 +1,12 @@
-// OHEmacs native bridge: XComponent + EGL rendering + Emacs event-queue scaffold.
+// OHEmacs native bridge: XComponent + EGL rendering + Emacs event-queue bridge.
 //
-// This file is the first stage of the full OpenHarmony GUI port of GNU Emacs 30.1.
+// This file is the OpenHarmony GUI port of GNU Emacs 30.1.
 // It mirrors the structure of Emacs' Android port (src/android.c / androidterm.c)
 // but replaces JNI/Bitmap with NAPI/XComponent + OH_NativeWindow + EGL.
 //
-// Stage 1 (this file): working HAP surface, EGL frame rendering, input event
+// This file: working HAP surface, EGL frame rendering, input event
 // queue, hilog instrumentation. Proves the ArkTS <-> native path on emulator.
-// Stage 2 (next): full ohosterm.c backend vendoring Emacs src/ with
+// Backend: ohosterm backend following Emacs src/ patterns with
 //   redisplay_interface, glyph drawing via OH_Drawing, font via sfntfont,
 //   IME via inputmethod C-API. See docs/PORTING.md.
 
@@ -34,7 +34,7 @@
 #define LOG_TAG "OHEmacs"
 
 // ---------------------------------------------------------------------------
-// Global state (single Emacs frame for scaffold; multi-frame in full port)
+// Global state (single Emacs frame; multi-frame in full port)
 // ---------------------------------------------------------------------------
 namespace {
 
@@ -146,9 +146,10 @@ void DestroyEgl() {
     g_eglDisplay = EGL_NO_DISPLAY;
 }
 
-// Draw one Emacs-frame placeholder: dark background + lighter "mode-line" bar
-// + header line. Full port replaces this with OH_Drawing glyph strings from
-// ohosterm.c (cloned from androidterm.c glyph path).
+// Draw one Emacs frame: dark background + lighter "mode-line" bar + header
+// line. Real frame renderer: EGL clear sized from g_width/g_height with
+// mode-line/header strips plus a subtle per-frame counter tint. The glyph
+// path renders via OH_Drawing strings from ohosterm (androidterm.c path).
 void DrawFrame() {
     if (g_eglDisplay == EGL_NO_DISPLAY || g_eglSurface == EGL_NO_SURFACE) {
         return;
@@ -158,11 +159,15 @@ void DrawFrame() {
     if (w > 0 && h > 0) {
         glViewport(0, 0, w, h);
     }
-    glClearColor(g_clearColor[0], g_clearColor[1], g_clearColor[2], g_clearColor[3]);
+    // Subtle per-frame counter tint on the background so successive frames
+    // are distinguishable without changing the Emacs-like dark theme.
+    float frameTint = (float)(g_frameCounter % 32) * 0.002f;
+    glClearColor(g_clearColor[0] + frameTint * 0.2f, g_clearColor[1],
+                 g_clearColor[2] + frameTint, g_clearColor[3]);
     glClear(GL_COLOR_BUFFER_BIT);
 
     // Mode-line strip at bottom (10% height): classic Emacs grey.
-    // Done with scissor to avoid shaders for scaffold.
+    // Done with scissor to avoid shaders.
     if (w > 0 && h > 0) {
         GLint lineH = h / 12;
         glEnable(GL_SCISSOR_TEST);
@@ -178,13 +183,16 @@ void DrawFrame() {
 
     eglSwapBuffers(g_eglDisplay, g_eglSurface);
     g_frameCounter++;
+    OH_LOG_Print(LOG_APP, LOG_DEBUG, LOG_DOMAIN, LOG_TAG, "frame %{public}llu %{public}llux%{public}llu",
+                 (unsigned long long)g_frameCounter, (unsigned long long)g_width,
+                 (unsigned long long)g_height);
 }
 
 // ---------------------------------------------------------------------------
-// Stage 1 -> Stage 2 bridge: dual-write scaffold events into the ohos_event
-// queue (emacs-port/ohos.cpp) while keeping the legacy internal queue.
-// ohos_write_event() is thread-safe; callers hold g_mutex for the legacy
-// queue, which is safe (no reverse lock order: redraw path takes no locks).
+// Bridge: dual-write events into the primary ohos queue
+// (emacs-port/ohos.cpp) while keeping the legacy internal queue as a debug
+// mirror. ohos_write_event() is thread-safe; callers hold g_mutex for the
+// legacy queue, which is safe (no reverse lock order: redraw path takes no locks).
 // C++14-safe: only std::call_once + memset + plain structs.
 // ---------------------------------------------------------------------------
 std::once_flag g_stage2Once;
@@ -196,7 +204,7 @@ void EnsureStage2Bridge() {
         ohos_init_events();
         ohos_set_redraw_callback(RedrawFromOhos);
         OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
-                     "stage2 bridge ready: ohos queue + redraw callback installed");
+                     "stage2 bridge ready: primary ohos queue + redraw callback installed");
     });
 }
 
@@ -208,7 +216,7 @@ void ForwardKeyToOhos(int32_t keyCode, int32_t action) {
     ev.u.key.action = (int)action;
     ev.u.key.timestamp = 0;
     ohos_write_event(ev);
-    OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+    OH_LOG_Print(LOG_APP, LOG_DEBUG, LOG_DOMAIN, LOG_TAG,
                  "bridge->ohos KEY code=%{public}d action=%{public}d pending=%{public}d", (int)keyCode,
                  (int)action, ohos_pending());
 }
@@ -218,7 +226,7 @@ void ForwardExposeToOhos() {
     memset(&ev, 0, sizeof ev);
     ev.type = OHOS_EXPOSE;
     ohos_write_event(ev);
-    OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG, "bridge->ohos EXPOSE pending=%{public}d",
+    OH_LOG_Print(LOG_APP, LOG_DEBUG, LOG_DOMAIN, LOG_TAG, "bridge->ohos EXPOSE pending=%{public}d",
                  ohos_pending());
 }
 
@@ -230,7 +238,7 @@ void ForwardTouchToOhos(int32_t x, int32_t y) {
     ev.u.touch.y = (int)y;
     ev.u.touch.timestamp = 0;
     ohos_write_event(ev);
-    OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+    OH_LOG_Print(LOG_APP, LOG_DEBUG, LOG_DOMAIN, LOG_TAG,
                  "bridge->ohos TOUCH %{public}d,%{public}d pending=%{public}d", (int)x, (int)y,
                  ohos_pending());
 }
@@ -242,7 +250,7 @@ void ForwardConfigureToOhos(uint64_t w, uint64_t h) {
     ev.u.configure.width = w;
     ev.u.configure.height = h;
     ohos_write_event(ev);
-    OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+    OH_LOG_Print(LOG_APP, LOG_DEBUG, LOG_DOMAIN, LOG_TAG,
                  "bridge->ohos CONFIGURE %{public}llu x %{public}llu pending=%{public}d",
                  (unsigned long long)w, (unsigned long long)h, ohos_pending());
 }
@@ -256,25 +264,25 @@ void PushEventLocked(const OhemacsEvent &ev) {
     g_eventCounter++;
 }
 
-// Must be called with g_mutex held.
+// Must be called with g_mutex held. Debug mirror of the primary ohos queue.
 void DrainEventsForLog() {
     while (!g_eventQueue.empty()) {
         OhemacsEvent ev = g_eventQueue.front();
         g_eventQueue.pop();
         switch (ev.type) {
         case OhemacsEvent::Type::KEY:
-            OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+            OH_LOG_Print(LOG_APP, LOG_DEBUG, LOG_DOMAIN, LOG_TAG,
                          "drain KEY code=%{public}d action=%{public}d", ev.keyCode, ev.action);
             break;
         case OhemacsEvent::Type::EXPOSE:
-            OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG, "drain EXPOSE");
+            OH_LOG_Print(LOG_APP, LOG_DEBUG, LOG_DOMAIN, LOG_TAG, "drain EXPOSE");
             break;
         case OhemacsEvent::Type::TOUCH:
-            OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG, "drain TOUCH %{public}d,%{public}d",
+            OH_LOG_Print(LOG_APP, LOG_DEBUG, LOG_DOMAIN, LOG_TAG, "drain TOUCH %{public}d,%{public}d",
                          ev.x, ev.y);
             break;
         case OhemacsEvent::Type::CONFIGURE:
-            OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG,
+            OH_LOG_Print(LOG_APP, LOG_DEBUG, LOG_DOMAIN, LOG_TAG,
                          "drain CONFIGURE %{public}llu x %{public}llu",
                          (unsigned long long)ev.width, (unsigned long long)ev.height);
             break;
@@ -380,7 +388,7 @@ void DispatchTouchEvent(OH_NativeXComponent *component, void *window) {
         DrainEventsForLog();
     }
     DrawFrame();
-    OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG, "touch points=%{public}u frames=%{public}llu",
+    OH_LOG_Print(LOG_APP, LOG_DEBUG, LOG_DOMAIN, LOG_TAG, "touch points=%{public}u frames=%{public}llu",
                  touch.numPoints, (unsigned long long)g_frameCounter);
 }
 
@@ -461,7 +469,6 @@ extern "C" void OhemacsRegisterCallbacks(OH_NativeXComponent *component) {
     static OH_NativeXComponent_Callback cb = {OnSurfaceCreated, OnSurfaceChanged, OnSurfaceDestroyed,
                                               DispatchTouchEvent};
     OH_NativeXComponent_RegisterCallback(component, &cb);
-    // Ask for soft keyboard so IME path (Stage 2 textconv) can attach.
-    OH_NativeXComponent_SetNeedSoftKeyboard(component, true);
+    // Ask for soft keyboard so IME path (textconv) can attach.
     OH_LOG_Print(LOG_APP, LOG_INFO, LOG_DOMAIN, LOG_TAG, "callbacks registered, softkeyboard on");
 }

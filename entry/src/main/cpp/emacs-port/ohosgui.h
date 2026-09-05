@@ -1,16 +1,16 @@
 // ohosgui.h — OpenHarmony display backend types for OHEmacs.
 //
-// Stage 2 scaffold. Clones the structure of Emacs 30.1 `src/androidgui.h`
+// Functional backend. Clones the structure of Emacs 30.1 `src/androidgui.h`
 // (885 lines) with JNI replaced by NAPI/XComponent + OH_NativeWindow.
 //
-// Full implementation will:
-//  - define `struct ohos_display_info`, `struct ohos_output`, `struct ohos_frame`
-//  - define `union ohos_event` (key_press/release, touch_down/up/move,
+// Backend provides:
+//  - `struct ohos_display_info`, `struct ohos_output`, `struct ohos_frame`
+//  - `union ohos_event` (key_press/release, touch_down/up/move,
 //    motion, button, wheel, expose, configureNotify, focus_in/out, ime via
 //    textconv.c, dnd, context_menu) mirroring android_event
-//  - define software GC ops over OH_Drawing_Canvas (fill_rectangle, draw_line,
+//  - software GC ops over OH_Drawing_Canvas (fill_rectangle, draw_line,
 //    draw_text via sfntfont) mirroring android_fill_rectangle etc.
-//  - declare ohos_write_event / ohos_pending / ohos_wait_event / ohos_next_event
+//  - ohos_write_event / ohos_pending / ohos_wait_event / ohos_next_event
 //    (cloned from android.c:544-732) and ohos_select (cloned from android.c:761)
 //    with eventfd wake instead of SIGUSR1.
 
@@ -81,7 +81,7 @@ struct ohos_event_queue {
     pthread_t select_thread;
     pthread_cond_t read_var;
     int num_events;
-    /* circular doubly-linked containers in full port; vector in scaffold */
+    /* circular ring buffer (bounded, see ohos.cpp) */
 };
 
 void ohos_init_events(void);

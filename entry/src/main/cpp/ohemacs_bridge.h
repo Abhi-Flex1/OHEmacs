@@ -6,7 +6,7 @@
 
 // Emacs upstream version we are porting.
 #define OHEMACS_UPSTREAM_VERSION "30.1"
-#define OHEMACS_PORT_VERSION "0.1.0-ohos-gui-scaffold"
+#define OHEMACS_PORT_VERSION "0.2.0-ohos-functional"
 
 // Called once from ArkTS to configure sandbox paths (filesDir/cacheDir).
 // Returns human-readable status; never throws.

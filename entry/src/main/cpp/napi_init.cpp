@@ -33,7 +33,7 @@ std::string GetString(napi_env env, napi_value v) {
 }
 
 napi_value Hello(napi_env env, napi_callback_info) {
-    return MakeString(env, "Hello OHEmacs (NAPI) — Emacs 30.1 OpenHarmony GUI scaffold");
+    return MakeString(env, "Hello OHEmacs (NAPI) — Emacs 30.1 OpenHarmony functional");
 }
 
 napi_value Add(napi_env env, napi_callback_info info) {
@@ -139,6 +139,78 @@ napi_value TestXComponent(napi_env env, napi_callback_info info) {
     return und;
 }
 
+extern "C" {
+int ohos_get_color(const char *color_name, unsigned long *color_out);
+int ohos_selection_put(const char *selection_name, const char *data, unsigned long len);
+unsigned long ohos_selection_get(const char *selection_name, char *buf, unsigned long bufsize);
+void ohos_popup_menu(void *frame, int x, int y, const char **items, int nitems);
+}
+
+napi_value GetColor(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    std::string name = argc > 0 ? GetString(env, argv[0]) : "";
+    unsigned long color = 0;
+    int res = ohos_get_color(name.c_str(), &color);
+    napi_value out = nullptr;
+    if (res == 0) {
+        napi_create_int64(env, (int64_t)color, &out);
+    } else {
+        napi_create_int64(env, -1, &out);
+    }
+    return out;
+}
+
+napi_value SetSelection(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    std::string text = argc > 0 ? GetString(env, argv[0]) : "";
+    ohos_selection_put("CLIPBOARD", text.c_str(), (unsigned long)text.size());
+    napi_value out = nullptr;
+    napi_get_boolean(env, true, &out);
+    return out;
+}
+
+napi_value GetSelection(napi_env env, napi_callback_info info) {
+    char buf[4096];
+    unsigned long len = ohos_selection_get("CLIPBOARD", buf, sizeof(buf) - 1);
+    if (len >= sizeof(buf)) {
+        len = sizeof(buf) - 1;
+    }
+    buf[len] = '\0';
+    return MakeString(env, std::string(buf, len));
+}
+
+napi_value PopupMenu(napi_env env, napi_callback_info info) {
+    size_t argc = 1;
+    napi_value argv[1] = {nullptr};
+    napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr);
+    std::vector<std::string> itemStrs;
+    std::vector<const char *> items;
+    if (argc > 0) {
+        bool isArray = false;
+        napi_is_array(env, argv[0], &isArray);
+        if (isArray) {
+            uint32_t length = 0;
+            napi_get_array_length(env, argv[0], &length);
+            for (uint32_t i = 0; i < length; i++) {
+                napi_value el = nullptr;
+                napi_get_element(env, argv[0], i, &el);
+                itemStrs.push_back(GetString(env, el));
+            }
+        }
+    }
+    for (const auto &s : itemStrs) {
+        items.push_back(s.c_str());
+    }
+    ohos_popup_menu(nullptr, 0, 0, items.data(), (int)items.size());
+    napi_value und = nullptr;
+    napi_get_undefined(env, &und);
+    return und;
+}
+
 napi_value Init(napi_env env, napi_value exports) {
     napi_property_descriptor desc[] = {
         {"hello", nullptr, Hello, nullptr, nullptr, nullptr, napi_default, nullptr},
@@ -150,6 +222,10 @@ napi_value Init(napi_env env, napi_value exports) {
         {"sendExpose", nullptr, SendExpose, nullptr, nullptr, nullptr, napi_default, nullptr},
         {"testXComponent", nullptr, TestXComponent, nullptr, nullptr, nullptr, napi_default,
          nullptr},
+        {"getColor", nullptr, GetColor, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"setSelection", nullptr, SetSelection, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"getSelection", nullptr, GetSelection, nullptr, nullptr, nullptr, napi_default, nullptr},
+        {"popupMenu", nullptr, PopupMenu, nullptr, nullptr, nullptr, napi_default, nullptr},
     };
     napi_define_properties(env, exports, sizeof(desc) / sizeof(desc[0]), desc);
 

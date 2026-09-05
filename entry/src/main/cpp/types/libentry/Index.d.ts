@@ -5,3 +5,7 @@ export function initEmacs(filesDir: string, cacheDir: string): string;
 export function sendKey(keyCode: number, action: number): void;
 export function sendExpose(): void;
 export function testXComponent(id: string): void;
+export function getColor(name: string): number;
+export function setSelection(text: string): boolean;
+export function getSelection(): string;
+export function popupMenu(items: string[]): void;

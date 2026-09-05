@@ -9,6 +9,144 @@ export interface HighlightSegment {
   color: string;
 }
 
+export interface EditState {
+  text: string;
+  point: number;
+}
+
+export interface KillResult {
+  text: string;
+  killed: string;
+}
+
+function clampPoint(text: string, point: number): number {
+  if (point < 0) {
+    return 0;
+  }
+  if (point > text.length) {
+    return text.length;
+  }
+  return point;
+}
+
+export function applyEdit(text: string, point: number, ins: string): EditState {
+  const p: number = clampPoint(text, point);
+  const next: string = text.substring(0, p) + ins + text.substring(p);
+  return { text: next, point: p + ins.length };
+}
+
+export function deleteBackward(text: string, point: number): EditState {
+  const p: number = clampPoint(text, point);
+  if (p <= 0) {
+    return { text: text, point: 0 };
+  }
+  const next: string = text.substring(0, p - 1) + text.substring(p);
+  return { text: next, point: p - 1 };
+}
+
+export function deleteForward(text: string, point: number): EditState {
+  const p: number = clampPoint(text, point);
+  if (p >= text.length) {
+    return { text: text, point: text.length };
+  }
+  const next: string = text.substring(0, p) + text.substring(p + 1);
+  return { text: next, point: p };
+}
+
+export function killLine(text: string, point: number): KillResult {
+  const p: number = clampPoint(text, point);
+  const nl: number = text.indexOf('\n', p);
+  if (nl < 0) {
+    return { text: text.substring(0, p), killed: text.substring(p) };
+  }
+  return { text: text.substring(0, p) + text.substring(nl + 1), killed: text.substring(p, nl + 1) };
+}
+
+export function yank(text: string, point: number, ring: string[]): EditState {
+  const p: number = clampPoint(text, point);
+  if (ring.length === 0) {
+    return { text: text, point: p };
+  }
+  const top: string = ring[ring.length - 1];
+  const next: string = text.substring(0, p) + top + text.substring(p);
+  return { text: next, point: p + top.length };
+}
+
+export function undoPush(stack: string[], text: string): string[] {
+  const copy: string[] = stack.slice();
+  copy.push(text);
+  while (copy.length > 100) {
+    copy.shift();
+  }
+  return copy;
+}
+
+export function searchForward(text: string, query: string, from: number): number {
+  if (query.length === 0) {
+    return -1;
+  }
+  let f: number = from;
+  if (f < 0) {
+    f = 0;
+  }
+  if (f > text.length) {
+    f = text.length;
+  }
+  return text.indexOf(query, f);
+}
+
+export function replaceAll(text: string, oldStr: string, newStr: string): string {
+  if (oldStr.length === 0) {
+    return text;
+  }
+  return text.split(oldStr).join(newStr);
+}
+
+export function lineOf(text: string, point: number): number {
+  let p: number = point;
+  if (p < 0) {
+    p = 0;
+  }
+  if (p > text.length) {
+    p = text.length;
+  }
+  let line: number = 1;
+  let i: number = 0;
+  while (i < p) {
+    if (text.charAt(i) === '\n') {
+      line = line + 1;
+    }
+    i = i + 1;
+  }
+  return line;
+}
+
+export function lineCount(text: string): number {
+  if (text.length === 0) {
+    return 1;
+  }
+  return text.split('\n').length;
+}
+
+export function posPercent(text: string, point: number): number {
+  const total: number = lineCount(text);
+  if (total <= 1) {
+    return 100;
+  }
+  let line: number = lineOf(text, point);
+  if (line < 1) {
+    line = 1;
+  }
+  if (line > total) {
+    line = total;
+  }
+  return Math.round((line - 1) / (total - 1) * 100);
+}
+
+export function isModified(initial: string, cur: string): boolean {
+  return initial !== cur;
+}
+
 // True GNU Emacs light-bg font-lock defaults.
 const DEFAULT_COLOR: string = '#000000';
 const COMMENT_COLOR: string = '#B22222';

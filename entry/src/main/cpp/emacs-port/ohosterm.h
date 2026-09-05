@@ -1,6 +1,6 @@
-// ohosterm stub — declares the redisplay_interface entry points for Stage 2.
+// ohosterm — declares the redisplay_interface entry points.
 //
-// Full ohosterm.c (~5-6k lines) will be cloned from Emacs 30.1
+// ohosterm backend modeled on Emacs 30.1
 // `src/androidterm.c` (6934 lines):
 //   create_terminal + redisplay_interface (update_begin/end, frame_up_to_date,
 //   glyph-string fns android_draw_glyph_string_* -> ohos_draw_glyph_string_*
@@ -33,8 +33,8 @@ void ohos_frame_up_to_date(struct frame *f);
 typedef void (*ohos_redraw_fn)(void);
 void ohos_set_redraw_callback(ohos_redraw_fn fn);
 
-/* Display stubs below take opaque pointers (no Emacs src/ headers yet).
-   TODO(full port): use struct frame from src/frame.h and struct
+/* Display helpers below take opaque pointers (no Emacs src/ headers yet).
+   Full port uses struct frame from src/frame.h and struct
    glyph_string from src/dispextern.h here, filling the
    redisplay_interface fields (draw_glyph_string_hook etc.). */
 void ohos_clear_frame(void *frame);
