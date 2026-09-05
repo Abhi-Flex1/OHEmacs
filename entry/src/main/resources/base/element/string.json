@@ -1,0 +1,7 @@
+{
+  "string": [
+    { "name": "module_desc", "value": "OHEmacs Module" },
+    { "name": "EntryAbility_desc", "value": "OHEmacs Main Application" },
+    { "name": "EntryAbility_label", "value": "OHEmacs" }
+  ]
+}

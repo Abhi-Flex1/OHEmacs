@@ -1,0 +1,13 @@
+{
+  "name": "ohemacs",
+  "version": "0.1.0",
+  "description": "OHEmacs - Emacs ported for OpenHarmony",
+  "main": "",
+  "author": "",
+  "license": "Apache-2.0",
+  "modelVersion": "5.0.0",
+  "dependencies": {},
+  "devDependencies": {
+    "@ohos/hypium": "1.0.19"
+  }
+}

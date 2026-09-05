@@ -1,0 +1,10 @@
+{
+  "name": "entry",
+  "version": "0.1.0",
+  "description": "OHEmacs entry HAP",
+  "main": "",
+  "author": "",
+  "license": "Apache-2.0",
+  "modelVersion": "5.0.0",
+  "dependencies": {}
+}
