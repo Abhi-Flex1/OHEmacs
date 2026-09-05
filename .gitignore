@@ -16,3 +16,4 @@ local.properties
 /tmp/
 /third_party/emacs-build/
 /vendor/emacs-build/
+release-dist/
