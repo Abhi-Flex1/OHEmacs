@@ -9,6 +9,12 @@ include_directories(${NATIVERENDER_ROOT_PATH}
 add_library(entry SHARED
     napi_init.cpp
     ohemacs_bridge.cpp
+    emacs-port/ohos.cpp
+    emacs-port/ohosterm.cpp
+    emacs-port/ohosfns.cpp
+    emacs-port/ohosfont.cpp
+    emacs-port/ohosmenu.cpp
+    emacs-port/ohosselect.cpp
 )
 
 find_library(libace_napi libace_napi.z.so)

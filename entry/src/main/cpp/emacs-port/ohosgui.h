@@ -18,7 +18,10 @@
 #define OHEMACS_OHOSGUI_H
 
 #include <pthread.h>
+#include <signal.h>
 #include <stdint.h>
+#include <sys/select.h>
+#include <time.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -84,6 +87,21 @@ struct ohos_event_queue {
 void ohos_init_events(void);
 void ohos_write_event(struct ohos_event event);
 int ohos_pending(void);
+
+/* Blocking / non-blocking dequeue — mirrors the android.c:544-732 wait
+   paths. Returns 1 with *EVENT filled, 0 if empty (next only). */
+int ohos_wait_event(struct ohos_event *event);
+int ohos_next_event(struct ohos_event *event);
+
+/* pselect() wrapper folding the internal eventfd wake source into READFDS
+   (mirrors android_select in android.c:761). Returns the ready-fd count
+   with the internal fd discounted, 0 if only Emacs events are pending. */
+int ohos_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+                const struct timespec *timeout, const sigset_t *sigmask);
+
+/* Raw level-triggered wake fd for custom poll loops. */
+int ohos_event_fd(void);
+void ohos_shutdown_events(void);
 
 #ifdef __cplusplus
 }

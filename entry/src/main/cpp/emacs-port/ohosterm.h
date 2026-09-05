@@ -28,6 +28,19 @@ void ohos_update_begin(struct frame *f);
 void ohos_update_end(struct frame *f);
 void ohos_frame_up_to_date(struct frame *f);
 
+/* Redraw hook: the bridge registers its EGL DrawFrame path so
+   ohos_read_socket()/ohos_update_end() repaint the XComponent surface. */
+typedef void (*ohos_redraw_fn)(void);
+void ohos_set_redraw_callback(ohos_redraw_fn fn);
+
+/* Display stubs below take opaque pointers (no Emacs src/ headers yet).
+   TODO(full port): use struct frame from src/frame.h and struct
+   glyph_string from src/dispextern.h here, filling the
+   redisplay_interface fields (draw_glyph_string_hook etc.). */
+void ohos_clear_frame(void *frame);
+void ohos_draw_glyph_string(void *glyph_string);
+void ohos_draw_cursor(void *frame, int x, int y, int width, int height);
+
 #ifdef __cplusplus
 }
 #endif
