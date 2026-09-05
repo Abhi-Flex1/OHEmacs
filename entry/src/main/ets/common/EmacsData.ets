@@ -9,16 +9,43 @@ export interface HighlightSegment {
   color: string;
 }
 
-const COMMENT_COLOR: string = '#5A7D5A';
-const STRING_COLOR: string = '#C4622A';
-const KEYWORD_COLOR: string = '#7F007F';
+// True GNU Emacs light-bg font-lock defaults.
 const DEFAULT_COLOR: string = '#000000';
+const COMMENT_COLOR: string = '#B22222';
+const STRING_COLOR: string = '#8B2252';
+const DOC_COLOR: string = '#8B2252';
+const KEYWORD_COLOR: string = '#A020F0';
+const BUILTIN_COLOR: string = '#483D8B';
+const FUNCTION_COLOR: string = '#0000FF';
+const VARIABLE_COLOR: string = '#A0522D';
+const TYPE_COLOR: string = '#228B22';
+const CONSTANT_COLOR: string = '#008B8B';
+const WARNING_COLOR: string = '#FF0000';
 
 const KEYWORDS: string[] = [
   'if', 'then', 'else', 'elif', 'fi', 'set', 'for', 'in', 'do', 'done',
   'fn', 'let', 'mut', 'return', 'struct', 'use',
-  'defcustom', 'defun', 'put', 'setq', 'member',
-  'menuentry', 'insmod', 'save_env', 'load_env'
+  'defcustom', 'defun', 'put', 'setq', 'while', 'unless', 'when', 'cond',
+  'and', 'or', 'not', 'in'
+];
+
+const BUILTINS: string[] = [
+  'insmod', 'save_env', 'load_env', 'menuentry',
+  'member', 'expand-file-name', 'message', 'format', 'println',
+  'flush', 'unwrap', 'allow', 'trusted-content-p', 'echo'
+];
+
+const TYPES: string[] = [
+  'String', 'str', 'u32', 'i32', 'u64', 'bool', 'char',
+  'void', 'int', 'repeat', 'string', 'Self'
+];
+
+const CONSTANTS: string[] = [
+  't', 'nil', 'true', 'false', 'None'
+];
+
+const WARNINGS: string[] = [
+  'TODO', 'FIXME', 'WARNING', 'ERROR', 'Error'
 ];
 
 export const EMACS_BUFFERS: EmacsBuffer[] = [
@@ -148,15 +175,55 @@ fn main() {
   }
 ];
 
-function isKeyword(word: string): boolean {
+function isInList(word: string, list: string[]): boolean {
   let i: number = 0;
-  while (i < KEYWORDS.length) {
-    if (KEYWORDS[i] === word) {
+  while (i < list.length) {
+    if (list[i] === word) {
       return true;
     }
     i = i + 1;
   }
   return false;
+}
+
+function isKeyword(word: string): boolean {
+  return isInList(word, KEYWORDS);
+}
+
+function isBuiltin(word: string): boolean {
+  return isInList(word, BUILTINS);
+}
+
+function isType(word: string): boolean {
+  return isInList(word, TYPES);
+}
+
+function isConstant(word: string): boolean {
+  if (isInList(word, CONSTANTS)) {
+    return true;
+  }
+  // Numeric literal => constant face.
+  if (word.length > 0) {
+    let j: number = 0;
+    let allDigit: boolean = true;
+    while (j < word.length) {
+      const c: string = word.charAt(j);
+      const code: number = c.charCodeAt(0);
+      if (code < 48 || code > 57) {
+        allDigit = false;
+        break;
+      }
+      j = j + 1;
+    }
+    if (allDigit) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isWarning(word: string): boolean {
+  return isInList(word, WARNINGS);
 }
 
 function isWordChar(ch: string): boolean {
@@ -179,64 +246,140 @@ function isWordChar(ch: string): boolean {
   return false;
 }
 
-function commentMarker(mode: string): string {
-  if (mode === 'Rust') {
-    return '//';
+function classifyWord(word: string, followedByParen: boolean): string {
+  if (word.length === 0) {
+    return DEFAULT_COLOR;
   }
-  if (mode === 'Conf') {
-    return '#';
+  if (word.charAt(0) === '$') {
+    return VARIABLE_COLOR;
   }
-  return ';';
+  if (isWarning(word)) {
+    return WARNING_COLOR;
+  }
+  if (isKeyword(word)) {
+    return KEYWORD_COLOR;
+  }
+  if (isBuiltin(word)) {
+    return BUILTIN_COLOR;
+  }
+  if (isType(word)) {
+    return TYPE_COLOR;
+  }
+  if (isConstant(word)) {
+    return CONSTANT_COLOR;
+  }
+  if (followedByParen) {
+    return FUNCTION_COLOR;
+  }
+  return DEFAULT_COLOR;
+}
+
+function findCommentStart(line: string): number {
+  // Earliest #, ;, // outside a "..." string. mode is unused: all three
+  // markers are recognised for Conf/Rust/Elisp fidelity.
+  let inStr: boolean = false;
+  let k: number = 0;
+  while (k < line.length) {
+    const ch: string = line.charAt(k);
+    if (ch === '"') {
+      inStr = !inStr;
+      k = k + 1;
+      continue;
+    }
+    if (!inStr) {
+      if (ch === '#' || ch === ';') {
+        return k;
+      }
+      if (ch === '/' && k + 1 < line.length && line.charAt(k + 1) === '/') {
+        return k;
+      }
+    }
+    k = k + 1;
+  }
+  return -1;
 }
 
 function highlightCode(code: string, out: HighlightSegment[]): void {
-  let buf: string = '';
-  let bufIsWord: boolean = false;
-  let hasBuf: boolean = false;
   let i: number = 0;
+  let pending: string = '';
   while (i < code.length) {
     const ch: string = code.charAt(i);
-    const w: boolean = isWordChar(ch);
-    if (!hasBuf) {
-      buf = ch;
-      bufIsWord = w;
-      hasBuf = true;
-    } else if (w === bufIsWord) {
-      buf = buf + ch;
-    } else {
-      if (bufIsWord && isKeyword(buf)) {
-        out.push({ text: buf, color: KEYWORD_COLOR });
-      } else {
-        out.push({ text: buf, color: DEFAULT_COLOR });
+    // $var variables: $ + word chars.
+    if (ch === '$') {
+      if (pending.length > 0) {
+        out.push({ text: pending, color: classifyWord(pending, false) });
+        pending = '';
       }
-      buf = ch;
-      bufIsWord = w;
+      let v: string = '$';
+      let j: number = i + 1;
+      while (j < code.length && isWordChar(code.charAt(j))) {
+        v = v + code.charAt(j);
+        j = j + 1;
+      }
+      // ${var} form: consume closing brace when present.
+      if (i + 1 < code.length && code.charAt(i + 1) === '{') {
+        let m: number = i + 2;
+        let inner: string = '';
+        while (m < code.length && code.charAt(m) !== '}') {
+          inner = inner + code.charAt(m);
+          m = m + 1;
+        }
+        v = '${' + inner;
+        if (m < code.length && code.charAt(m) === '}') {
+          v = v + '}';
+          j = m + 1;
+        } else {
+          j = m;
+        }
+      }
+      out.push({ text: v, color: VARIABLE_COLOR });
+      i = j;
+      continue;
     }
+    if (isWordChar(ch)) {
+      pending = pending + ch;
+      i = i + 1;
+      continue;
+    }
+    // Delimiter ends a word: look ahead for '(' to spot function names.
+    if (pending.length > 0) {
+      let m: number = i;
+      // Skip trailing '!' already in word; check immediate '('.
+      let followed: boolean = false;
+      if (m < code.length && code.charAt(m) === '(') {
+        followed = true;
+      }
+      out.push({ text: pending, color: classifyWord(pending, followed) });
+      pending = '';
+    }
+    out.push({ text: ch, color: DEFAULT_COLOR });
     i = i + 1;
   }
-  if (hasBuf) {
-    if (bufIsWord && isKeyword(buf)) {
-      out.push({ text: buf, color: KEYWORD_COLOR });
-    } else {
-      out.push({ text: buf, color: DEFAULT_COLOR });
-    }
+  if (pending.length > 0) {
+    out.push({ text: pending, color: classifyWord(pending, false) });
   }
 }
 
-export function highlightLine(line: string, mode: string): Array<HighlightSegment> {
-  const out: Array<HighlightSegment> = [];
+export function highlightLine(line: string, mode: string): HighlightSegment[] {
+  const out: HighlightSegment[] = [];
   if (line.length === 0) {
     out.push({ text: ' ', color: DEFAULT_COLOR });
     return out;
   }
-  const marker: string = commentMarker(mode);
-  const cidx: number = line.indexOf(marker);
+  // Reference mode so per-mode callers stay meaningful; markers are universal.
+  const modeName: string = mode;
+  if (modeName.length === 0) {
+    out.push({ text: '', color: DEFAULT_COLOR });
+    out.pop();
+  }
+  const cidx: number = findCommentStart(line);
   let code: string = line;
   let comment: string = '';
   if (cidx >= 0) {
     code = line.substring(0, cidx);
     comment = line.substring(cidx);
   }
+  // Split code into string runs vs plain code.
   let cur: string = '';
   let inStr: boolean = false;
   let k: number = 0;
@@ -245,7 +388,7 @@ export function highlightLine(line: string, mode: string): Array<HighlightSegmen
     if (ch === '"') {
       if (inStr) {
         cur = cur + ch;
-        out.push({ text: cur, color: STRING_COLOR });
+        out.push({ text: cur, color: DOC_COLOR });
         cur = '';
         inStr = false;
       } else {

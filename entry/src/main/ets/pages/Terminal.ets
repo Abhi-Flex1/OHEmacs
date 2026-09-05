@@ -11,6 +11,19 @@ const INIT_CACHE_DIR: string = '/data/storage/el2/base/cache';
 const PWD_DIR: string = '/data/storage';
 const UNAME_LINE: string = 'HarmonyOS Harmony_PC_61 aarch64';
 
+interface ShellTool {
+  icon: string;
+  name: string;
+}
+
+const SHELL_TOOLS: ShellTool[] = [
+  { icon: '⌧', name: 'Clear' },
+  { icon: '⊗', name: 'Interrupt' },
+  { icon: 'ⓘ', name: 'Version' },
+  { icon: '▣', name: 'Expose' },
+  { icon: '⏎', name: 'Enter' }
+];
+
 @Entry
 @Component
 struct Terminal {
@@ -20,10 +33,10 @@ struct Terminal {
 
   aboutToAppear(): void {
     try {
-      const hello: string = nativeModule.hello() as string;
+      const hello: string = nativeModule.hello();
       this.appendLog('$ emacs --batch --eval "(message \\"hello\\")"');
       this.appendLog(hello);
-      const ver: string = nativeModule.getEmacsVersion() as string;
+      const ver: string = nativeModule.getEmacsVersion();
       this.appendLog('$ emacs --batch --version');
       this.appendLog(ver);
     } catch (e) {
@@ -80,7 +93,46 @@ struct Terminal {
       this.runShellCommand('help');
       return;
     }
+    if (name === 'Back') {
+      this.goBack();
+      return;
+    }
     this.status = 'menu: ' + name;
+  }
+
+  private shellTool(name: string): void {
+    if (name === 'Clear') {
+      this.runShellCommand('clear');
+      return;
+    }
+    if (name === 'Interrupt') {
+      this.interrupt();
+      return;
+    }
+    if (name === 'Version') {
+      this.runShellCommand('version');
+      return;
+    }
+    if (name === 'Expose') {
+      try {
+        nativeModule.sendExpose();
+        this.appendLog('$ sendExpose');
+        this.appendLog('expose delivered to ohos backend');
+      } catch (e) {
+        this.appendLog('sendExpose failed: ' + String(e));
+      }
+      return;
+    }
+    if (name === 'Enter') {
+      try {
+        nativeModule.sendKey(2011, 1);
+        this.appendLog('$ sendKey Enter down (2011,1)');
+      } catch (e) {
+        this.appendLog('sendKey failed: ' + String(e));
+      }
+      return;
+    }
+    this.appendLog('tool: ' + name);
   }
 
   private interrupt(): void {
@@ -116,7 +168,7 @@ struct Terminal {
     }
     if (cmd === 'version' || cmd === 'emacs --version' || cmd === 'emacs --batch --version') {
       try {
-        const v: string = nativeModule.getEmacsVersion() as string;
+        const v: string = nativeModule.getEmacsVersion();
         this.status = v;
         this.appendLog(v);
       } catch (e) {
@@ -126,7 +178,7 @@ struct Terminal {
     }
     if (cmd === 'init' || cmd === 'emacs --batch --init') {
       try {
-        const r: string = nativeModule.initEmacs(INIT_FILES_DIR, INIT_CACHE_DIR) as string;
+        const r: string = nativeModule.initEmacs(INIT_FILES_DIR, INIT_CACHE_DIR);
         this.status = 'emacs: ' + r;
         this.appendLog('initEmacs: ' + r);
       } catch (e) {
@@ -150,7 +202,7 @@ struct Terminal {
         }
       }
       try {
-        const n: number = nativeModule.add(a, b) as number;
+        const n: number = nativeModule.add(a, b);
         this.status = 'add=' + n.toString();
         this.appendLog('emacs --batch --eval "(+ ' + a.toString() + ' ' + b.toString() + ')" => ' + n.toString());
       } catch (e) {
@@ -208,76 +260,137 @@ struct Terminal {
     this.status = 'unknown: ' + cmd;
   }
 
-  private goBack(): void {
+  private async goBackAsync(): Promise<void> {
     try {
-      router.pushUrl({ url: 'pages/Index' }).then((): void => {
-        hilog.info(DOMAIN, 'OHEmacs', 'nav Terminal -> Index ok');
-      }).catch((e: Error): void => {
-        this.appendLog('nav failed: ' + String(e));
-      });
+      await router.pushUrl({ url: 'pages/Index' });
+      hilog.info(DOMAIN, 'OHEmacs', 'nav Terminal -> Index ok');
     } catch (e) {
       this.appendLog('nav failed: ' + String(e));
     }
   }
 
+  private goBack(): void {
+    this.goBackAsync();
+  }
+
   build(): void {
-    Column() {
-      Text(SHELL_TITLE).fontSize(18).fontWeight(FontWeight.Bold).margin({ top: 8, bottom: 2 })
-      Text('GNU Emacs 30.1 M-x shell / vterm emulation (NAPI libentry.so)')
-        .fontSize(11).fontColor('#666666').margin({ bottom: 4 })
-      Row() {
-        Button('File').fontSize(12).margin(2).onClick((): void => {
-          this.menuAction('File');
-        })
-        Button('Edit').fontSize(12).margin(2).onClick((): void => {
-          this.menuAction('Edit');
-        })
-        Button('Buffers').fontSize(12).margin(2).onClick((): void => {
-          this.menuAction('Buffers');
-        })
-        Button('Tools').fontSize(12).margin(2).onClick((): void => {
-          this.menuAction('Tools');
-        })
-        Button('Help').fontSize(12).margin(2).onClick((): void => {
-          this.menuAction('Help');
-        })
-        Button('Back to GUI').fontSize(12).margin(2).onClick((): void => {
-          this.goBack();
-        })
-      }.width('100%').backgroundColor('#E8E8E8').padding(4).margin({ bottom: 4 })
+    Column({ space: 0 }) {
+      Text(SHELL_TITLE)
+        .fontSize(13)
+        .fontWeight(FontWeight.Bold)
+        .textAlign(TextAlign.Center)
+        .width('100%')
+        .height(24)
+        .backgroundColor('#E8E8E8')
+        .fontColor('#000000')
+        .padding(0)
+        .margin(0)
 
-      Row() {
-        Button('Clear').fontSize(12).margin(4).onClick((): void => {
-          this.runShellCommand('clear');
-        })
-        Button('Interrupt C-g').fontSize(12).margin(4).onClick((): void => {
-          this.interrupt();
-        })
-        Button('Version').fontSize(12).margin(4).onClick((): void => {
-          this.runShellCommand('version');
-        })
-      }.width('100%').margin({ bottom: 4 })
+      // Menu bar: H26 BG #F0F0F0 pad 0/2 gap 0, plain Texts.
+      Scroll() {
+        Row({ space: 0 }) {
+          Text('File')
+            .fontSize(13).fontColor('#000000')
+            .padding({ top: 2, bottom: 2, left: 6, right: 6 }).margin(0)
+            .onClick((): void => {
+              this.menuAction('File');
+            })
+          Text('Edit')
+            .fontSize(13).fontColor('#000000')
+            .padding({ top: 2, bottom: 2, left: 6, right: 6 }).margin(0)
+            .onClick((): void => {
+              this.menuAction('Edit');
+            })
+          Text('Buffers')
+            .fontSize(13).fontColor('#000000')
+            .padding({ top: 2, bottom: 2, left: 6, right: 6 }).margin(0)
+            .onClick((): void => {
+              this.menuAction('Buffers');
+            })
+          Text('Tools')
+            .fontSize(13).fontColor('#000000')
+            .padding({ top: 2, bottom: 2, left: 6, right: 6 }).margin(0)
+            .onClick((): void => {
+              this.menuAction('Tools');
+            })
+          Text('Help')
+            .fontSize(13).fontColor('#000000')
+            .padding({ top: 2, bottom: 2, left: 6, right: 6 }).margin(0)
+            .onClick((): void => {
+              this.menuAction('Help');
+            })
+          Text('Back to GUI')
+            .fontSize(13).fontColor('#000000')
+            .padding({ top: 2, bottom: 2, left: 6, right: 6 }).margin(0)
+            .onClick((): void => {
+              this.goBack();
+            })
+        }.height(26).padding(0).margin(0)
+      }
+      .scrollable(ScrollDirection.Horizontal)
+      .width('100%').height(26)
+      .backgroundColor('#F0F0F0')
+      .padding(0).margin(0)
 
-      Text('Status: ' + this.status).fontSize(12).margin({ bottom: 4 })
+      // Toolbar: H36 BG #F0F0F0 bottom border #C0C0C0 pad 2 gap 2, 28x28 cells.
+      Scroll() {
+        Row({ space: 2 }) {
+          ForEach(SHELL_TOOLS, (tool: ShellTool, idx: number): void => {
+            Text(tool.icon)
+              .fontSize(16).fontColor('#000000')
+              .textAlign(TextAlign.Center)
+              .width(28).height(28)
+              .borderRadius(3)
+              .backgroundColor('#F0F0F0')
+              .padding(0).margin(0)
+              .onClick((): void => {
+                this.shellTool(tool.name);
+              })
+          }, (tool: ShellTool, idx: number): string => idx.toString() + ':' + tool.name)
+        }.height(32).padding(0).margin(0)
+      }
+      .scrollable(ScrollDirection.Horizontal)
+      .width('100%').height(36)
+      .backgroundColor('#F0F0F0')
+      .border({ width: { bottom: 1 }, color: '#C0C0C0' })
+      .padding(2).margin(0)
 
-      List() {
+      Text('Status: ' + this.status)
+        .fontSize(11).fontFamily('monospace').fontColor('#000000')
+        .width('100%')
+        .padding({ left: 4, right: 4 })
+        .margin(0)
+
+      // *shell* buffer: dark #0A0A0A green #33FF66 monospace 13px.
+      List({ space: 0 }) {
         ForEach(this.logLines, (line: string, idx: number): void => {
           ListItem() {
-            Text((idx + 1).toString() + ': ' + line).fontSize(11).fontFamily('monospace').fontColor('#33FF66')
-          }
+            Text((idx + 1).toString() + ': ' + line)
+              .fontSize(13).fontFamily('monospace').fontColor('#33FF66')
+              .padding(0).margin(0)
+          }.padding(0).margin(0)
         }, (line: string, idx: number): string => idx.toString() + ':' + line)
       }
       .width('100%')
-      .height(380)
+      .layoutWeight(1)
       .backgroundColor('#0A0A0A')
       .border({ width: 1, color: '#333333' })
-      .margin({ bottom: 8 })
+      .padding(0)
+      .margin(0)
+      .divider({ strokeWidth: 0 })
 
-      Row() {
-        TextInput({ placeholder: 'shell: help | version | init | add 40 2 | ls | echo hi', text: this.cmdInput })
+      // Input: H22 row.
+      Row({ space: 0 }) {
+        TextInput({
+          placeholder: 'shell: help | version | init | add 40 2 | ls | echo hi',
+          text: this.cmdInput
+        })
           .fontFamily('monospace')
-          .fontSize(13)
+          .fontSize(12)
           .layoutWeight(1)
+          .height(22)
+          .padding(0)
+          .margin(0)
           .onChange((value: string): void => {
             this.cmdInput = value;
           })
@@ -286,39 +399,32 @@ struct Terminal {
             this.cmdInput = '';
             this.runShellCommand(c);
           })
-        Button('Run').fontSize(13).margin({ left: 8 }).onClick((): void => {
-          const c: string = this.cmdInput;
-          this.cmdInput = '';
-          this.runShellCommand(c);
-        })
-      }.width('100%').margin({ bottom: 8 })
+        Button('Run')
+          .fontSize(12)
+          .height(22)
+          .borderRadius(3)
+          .padding({ top: 2, bottom: 2, left: 6, right: 6 })
+          .margin({ left: 4 })
+          .onClick((): void => {
+            const c: string = this.cmdInput;
+            this.cmdInput = '';
+            this.runShellCommand(c);
+          })
+      }.width('100%').height(22).padding(0).margin(0)
 
-      Row() {
-        Button('C-g').fontSize(12).margin(4).onClick((): void => {
-          this.interrupt();
-        })
-        Button('Expose').fontSize(12).margin(4).onClick((): void => {
-          try {
-            nativeModule.sendExpose();
-            this.appendLog('$ sendExpose');
-            this.appendLog('expose delivered to ohos backend');
-          } catch (e) {
-            this.appendLog('sendExpose failed: ' + String(e));
-          }
-        })
-        Button('Key Enter').fontSize(12).margin(4).onClick((): void => {
-          try {
-            nativeModule.sendKey(2011, 1);
-            this.appendLog('$ sendKey Enter down (2011,1)');
-          } catch (e) {
-            this.appendLog('sendKey failed: ' + String(e));
-          }
-        })
-      }.width('100%').margin({ bottom: 4 })
-
-      Text('-:-- *shell*      Bot L' + this.logLines.length.toString() + '  (Shell)')
-        .fontSize(11).fontFamily('monospace').backgroundColor('#D8D8D8')
-        .width('100%').padding(4)
-    }.width('100%').height('100%').padding(12)
+      // Mode-line: H22 BG #E5E5E5 borders #999 pad 0/4.
+      Text('-:-- *shell* Bot L' + this.logLines.length.toString() + ' (Shell)')
+        .fontSize(12).fontFamily('monospace').fontColor('#000000')
+        .backgroundColor('#E5E5E5')
+        .width('100%').height(22)
+        .border({ width: { top: 1, bottom: 1 }, color: '#999999' })
+        .padding({ left: 4, right: 4 })
+        .margin(0)
+    }
+    .width('100%')
+    .height('100%')
+    .padding(0)
+    .margin(0)
+    .backgroundColor('#FFFFFF')
   }
 }
