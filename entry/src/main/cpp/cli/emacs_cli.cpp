@@ -36,7 +36,7 @@
 #include <sstream>
 
 #define OHEMACS_VERSION "30.1"
-#define OHEMACS_CLI_TAG "OHEmacs-CLI 0.2.0 (aarch64-unknown-linux-ohos musl)"
+#define OHEMACS_CLI_TAG "OHEmacs-CLI 0.1.0 (aarch64-unknown-linux-ohos musl)"
 
 namespace {
 

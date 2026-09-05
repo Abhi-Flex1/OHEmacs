@@ -14,6 +14,8 @@ mkdir -p "$OUT_DIR"
 
 echo "=== Compiling native HarmonyOS Terminal Emacs (aarch64) ==="
 "$CLANG" -O2 -std=c++17 "$SRC" -o "$OUT_BIN"
+mkdir -p "$ROOT/entry/src/main/resources/rawfile"
+cp -f "$OUT_BIN" "$ROOT/entry/src/main/resources/rawfile/emacs"
 file "$OUT_BIN"
 
 echo "=== Deploying to HarmonyOS emulator via HDC ==="
